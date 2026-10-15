@@ -1690,36 +1690,39 @@
       if (!Array.isArray(sources)) return;
 
       sources.forEach(s => {
-        if (!s.url) return;
+        const hasUrl = !!s.url;
+        const key = hasUrl ? (s.domain || (s.url ? s.url.split('/')[2] : 'unknown')) : (s.attribution || s.title || 'Unknown source');
         totalCitations++;
         citingQuestions.add(qid);
-        const domain = s.domain || (s.url ? s.url.split('/')[2] : 'unknown');
-        if (!domainMap.has(domain)) {
-          domainMap.set(domain, {
-            domain,
-            attribution: s.attribution || s.title || domain,
+        if (!domainMap.has(key)) {
+          domainMap.set(key, {
+            domain: key,
+            hasUrlGroup: hasUrl,
+            attribution: s.attribution || s.title || key,
             count: 0,
             questionMap: new Map(),
             subUrlsMap: new Map()
           });
         }
-        const entry = domainMap.get(domain);
+        const entry = domainMap.get(key);
         entry.count++;
         entry.questionMap.set(qid, q.prompt);
 
-        const url = s.url;
-        if (!entry.subUrlsMap.has(url)) {
-          entry.subUrlsMap.set(url, {
-            url,
-            title: s.title || s.attribution || url,
-            attribution: s.attribution || domain,
-            count: 0,
-            questionMap: new Map()
-          });
+        if (hasUrl) {
+          const url = s.url;
+          if (!entry.subUrlsMap.has(url)) {
+            entry.subUrlsMap.set(url, {
+              url,
+              title: s.title || s.attribution || url,
+              attribution: s.attribution || key,
+              count: 0,
+              questionMap: new Map()
+            });
+          }
+          const sub = entry.subUrlsMap.get(url);
+          sub.count++;
+          sub.questionMap.set(qid, q.prompt);
         }
-        const sub = entry.subUrlsMap.get(url);
-        sub.count++;
-        sub.questionMap.set(qid, q.prompt);
       });
     });
 
@@ -1739,7 +1742,7 @@
       const subUrlsList = Array.from(d.subUrlsMap.values()).sort((a, b) => b.count - a.count);
       const questionsList = Array.from(d.questionMap.entries()).map(([qid, prompt]) => ({ qid, prompt }));
 
-      // Main Domain Row
+      // Main Domain Row (attribution-only citations group under the source name)
       const tr = document.createElement('tr');
       tr.className = `domain-row ${isExpanded ? 'expanded' : ''}`;
       tr.dataset.domain = d.domain;
@@ -1748,7 +1751,7 @@
         <td>
           <span class="domain-expand-icon">${isExpanded ? '▼' : '▶'}</span>
           <span style="font-family: ui-monospace, monospace; font-weight: 600; color: var(--accent);">${escapeHtml(d.domain)}</span>
-          <span class="suburl-count-pill" title="Click to view all ${subUrlsList.length} pages">${subUrlsList.length} page${subUrlsList.length === 1 ? '' : 's'}</span>
+          ${subUrlsList.length ? `<span class="suburl-count-pill" title="Click to view all ${subUrlsList.length} pages">${subUrlsList.length} page${subUrlsList.length === 1 ? '' : 's'}</span>` : `<span class="suburl-count-pill" title="Source name captured from the chat UI; the chips do not expose URLs">name only</span>`}
         </td>
         <td>${escapeHtml(d.attribution)}</td>
         <td style="font-weight: 700;">${d.count}</td>
@@ -1809,6 +1812,24 @@
       if (isExpanded) {
         const subTr = document.createElement('tr');
         subTr.className = 'suburls-row';
+        if (subUrlsList.length === 0) {
+          subTr.innerHTML = `
+          <td colspan="5" style="padding: 0;">
+            <div class="suburls-container">
+              <div class="suburls-header-title">
+                <span>Citations under</span>
+                <span style="color: var(--accent); font-family: ui-monospace, monospace;">${escapeHtml(d.domain)}</span>
+              </div>
+              <div style="padding: 10px 14px; color: var(--text-light); font-size: 0.85em;">
+                ${questionsList.map(item => `
+                  <div style="padding: 4px 0;"><span class="q-badge">${item.qid}</span> ${escapeHtml(item.prompt)}</div>
+                `).join('')}
+                <div style="margin-top: 6px; opacity: 0.8;">Captured as source names from the chat UI; these chips do not carry destination URLs.</div>
+              </div>
+            </div>
+          </td>
+          `;
+        } else {
         subTr.innerHTML = `
           <td colspan="5" style="padding: 0;">
             <div class="suburls-container">
@@ -1856,6 +1877,7 @@
             </div>
           </td>
         `;
+        }
 
         // Sub-URL question pill clicks -> also jumps to question!
         subTr.querySelectorAll('.suburl-q-badge').forEach(badge => {
@@ -1870,6 +1892,7 @@
       }
     });
   }
+
 
   // Jump to Question Helper
   window.jumpToQuestion = function(qid) {
